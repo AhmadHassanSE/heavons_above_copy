@@ -1,0 +1,59 @@
+name: Scheduled Maintenance Tasks
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+    # Run weekly on Monday at 3 AM UTC
+    - cron: '0 3 * * 1'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  database-backup:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18.x'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run database backup script
+      run: node scripts/backup.js
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        BACKUP_BUCKET: ${{ secrets.BACKUP_BUCKET }}
+        
+    - name: Notify on success
+      if: success()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: 'Scheduled backup completed successfully',
+            body: 'Database backup was completed on schedule.'
+          })
+          
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Clean up old logs and temp files
+      run: |
+        node scripts/cleanup.js
+        echo "Cleanup completed at $(date)" >> cleanup.log
+        
+    - name: Upload cleanup log
+      uses: actions/upload-artifact@v4
+      with:
+        name: cleanup-log
+        path: cleanup.log
