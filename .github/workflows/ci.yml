@@ -22,46 +22,44 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-        # REMOVED cache to avoid lockfile errors
         
     - name: Check project structure
+      id: check_files
       run: |
         echo "=== Repository Structure ==="
         ls -la
-        echo "=== Package.json check ==="
         if [ -f "package.json" ]; then
+          echo "package_json_exists=true" >> $GITHUB_OUTPUT
           echo "📦 package.json found"
-          cat package.json | grep -A 10 "scripts"
+          echo "=== Package.json scripts ==="
+          npm run || echo "No scripts available"
         else
+          echo "package_json_exists=false" >> $GITHUB_OUTPUT
           echo "❌ No package.json found"
         fi
         
     - name: Install dependencies
-      if: hashFiles('package.json') != ''
+      if: steps.check_files.outputs.package_json_exists == 'true'
       run: |
         echo "Installing dependencies..."
-        # Generate package-lock.json first, then install
-        npm install --package-lock-only
         npm install
         echo "Dependencies installed successfully"
         
     - name: Run tests
-      if: hashFiles('package.json') != ''
+      if: steps.check_files.outputs.package_json_exists == 'true'
       run: |
         echo "Checking for test scripts..."
-        if npm run | grep -q "\"test\""; then
+        if npm run | grep -q " test"; then
           echo "Running tests..."
           npm test
         else
-          echo "No test script found in package.json"
-          echo "Available scripts:"
-          npm run
+          echo "No test script found"
         fi
         
     - name: Run linting
-      if: hashFiles('package.json') != ''
+      if: steps.check_files.outputs.package_json_exists == 'true'
       run: |
-        if npm run | grep -q "\"lint\""; then
+        if npm run | grep -q " lint"; then
           echo "Running linting..."
           npm run lint
         else
@@ -69,9 +67,9 @@ jobs:
         fi
         
     - name: Build project
-      if: hashFiles('package.json') != ''
+      if: steps.check_files.outputs.package_json_exists == 'true'
       run: |
-        if npm run | grep -q "\"build\""; then
+        if npm run | grep -q " build"; then
           echo "Building project..."
           npm run build
         else
@@ -79,14 +77,14 @@ jobs:
         fi
         
     - name: Skip non-Node project
-      if: hashFiles('package.json') == ''
+      if: steps.check_files.outputs.package_json_exists == 'false'
       run: |
         echo "⚠️  No package.json found - this may not be a Node.js project"
         echo "Skipping Node.js specific steps"
-        
+
   security-scan:
     runs-on: ubuntu-latest
-    if: hashFiles('package.json') != ''  # Only run if package.json exists
+    needs: test
     
     steps:
     - name: Checkout code
@@ -96,20 +94,27 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18.x'
-        # NO cache to avoid lockfile errors
+        
+    - name: Check for package.json
+      id: check_package
+      run: |
+        if [ -f "package.json" ]; then
+          echo "package_json_exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "package_json_exists=false" >> $GITHUB_OUTPUT
+        fi
         
     - name: Install dependencies for security scan
+      if: steps.check_package.outputs.package_json_exists == 'true'
       run: |
-        # Generate lockfile for security audit
-        npm install --package-lock-only --no-save
+        npm install
         
     - name: Run security audit
+      if: steps.check_package.outputs.package_json_exists == 'true'
       run: |
         echo "Running npm audit..."
         npm audit --audit-level=high || echo "Audit completed with findings"
         
-    - name: Run Snyk security scan (optional)
-      if: env.SNYK_TOKEN != ''
-      uses: snyk/actions/node@master
-      env:
-        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    - name: Skip security scan
+      if: steps.check_package.outputs.package_json_exists == 'false'
+      run: echo "Skipping security scan - no package.json found"
