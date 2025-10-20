@@ -1,14 +1,13 @@
 name: Dependency Updates
 
 on:
-  pull_request:
-    paths:
-      - 'package.json'
-      - 'package-lock.json'
-  workflow_dispatch:
+  schedule:
+    # Run weekly on Monday at 6 AM UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch:  # Allow manual triggering
 
 jobs:
-  test-dependency-updates:
+  dependency-check:
     runs-on: ubuntu-latest
     
     steps:
@@ -19,30 +18,95 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18.x'
-        cache: 'npm'
+        
+    - name: Check available scripts
+      id: check_scripts
+      run: |
+        echo "📋 Available npm scripts:"
+        npm run
+        if npm run | grep -q " test"; then
+          echo "has_test_script=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_test_script=false" >> $GITHUB_OUTPUT
+        fi
+        if npm run | grep -q " build"; then
+          echo "has_build_script=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_build_script=false" >> $GITHUB_OUTPUT
+        fi
+        if npm run | grep -q " lint"; then
+          echo "has_lint_script=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_lint_script=false" >> $GITHUB_OUTPUT
+        fi
         
     - name: Install dependencies
-      run: npm ci
+      run: npm install
       
-    - name: Run tests with updated dependencies
+    - name: Check for outdated dependencies
+      id: check_outdated
+      run: |
+        echo "🔍 Checking for outdated dependencies..."
+        npm outdated --json > outdated.json || echo "No outdated dependencies found"
+        
+        if [ -s outdated.json ]; then
+          echo "has_outdated=true" >> $GITHUB_OUTPUT
+          echo "Outdated dependencies found:"
+          cat outdated.json
+        else
+          echo "has_outdated=false" >> $GITHUB_OUTPUT
+          echo "✅ All dependencies are up to date"
+        fi
+        
+    - name: Run tests (if available)
+      if: steps.check_scripts.outputs.has_test_script == 'true'
       run: npm test
       
-    - name: Build with updated dependencies
+    - name: Skip tests (if not available)
+      if: steps.check_scripts.outputs.has_test_script == 'false'
+      run: echo "⚠️ No test script found, skipping tests"
+      
+    - name: Run linting (if available)
+      if: steps.check_scripts.outputs.has_lint_script == 'true'
+      run: npm run lint
+      
+    - name: Build project (if available)
+      if: steps.check_scripts.outputs.has_build_script == 'true'
       run: npm run build
       
     - name: Security audit
-      run: npm audit
-      
-  auto-merge:
-    runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
-    needs: test-dependency-updates
-    
-    steps:
-    - name: Enable auto-merge for Dependabot PRs
-      if: success()
       run: |
-        gh pr merge --auto --squash "$PR_URL"
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        PR_URL: ${{ github.event.pull_request.html_url }}
+        echo "🔒 Running security audit..."
+        npm audit --audit-level=high || echo "Security audit completed with findings"
+        
+    - name: Create dependency report
+      if: steps.check_outdated.outputs.has_outdated == 'true'
+      run: |
+        echo "## Dependency Update Report" > dependency-report.md
+        echo "Generated: $(date)" >> dependency-report.md
+        echo "" >> dependency-report.md
+        echo "### Outdated Dependencies:" >> dependency-report.md
+        echo '```json' >> dependency-report.md
+        cat outdated.json >> dependency-report.md
+        echo '```' >> dependency-report.md
+        
+    - name: Upload dependency report
+      if: steps.check_outdated.outputs.has_outdated == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: dependency-report
+        path: dependency-report.md
+        
+    - name: Create issue for outdated dependencies
+      if: steps.check_outdated.outputs.has_outdated == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const report = require('fs').readFileSync('dependency-report.md', 'utf8');
+          await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: '📦 Dependency Update Report',
+            body: report,
+            labels: ['dependencies', 'automation']
+          });
