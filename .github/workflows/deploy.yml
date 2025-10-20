@@ -3,7 +3,7 @@ name: Deployment Pipeline
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
+  tags: [ 'v*' ]
 
 env:
   NODE_VERSION: '18.x'
@@ -72,7 +72,7 @@ jobs:
         # Check if Dockerfile exists, if not create a simple one
         if [ ! -f "Dockerfile" ]; then
           echo "🐳 Creating basic Dockerfile..."
-          cat > Dockerfile << EOF
+          cat > Dockerfile << 'EOF'
 FROM node:18-alpine
 WORKDIR /app
 COPY package*.json ./
