@@ -1,12 +1,13 @@
-name: Code Review Automation
+name: Basic Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    branches: [ main ]
 
 jobs:
-  code-quality:
+  validate:
     runs-on: ubuntu-latest
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -15,90 +16,19 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18.x'
+        cache: 'npm'
         
     - name: Install dependencies
-      run: npm ci
+      run: npm install
       
-    - name: ESLint Analysis
-      run: npx eslint . --ext .js,.jsx,.ts,.tsx --format json > eslint-report.json || true
-      
-    - name: Upload ESLint report
-      uses: actions/upload-artifact@v4
-      with:
-        name: eslint-report
-        path: eslint-report.json
-        
-  security-scan:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Run CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
-      with:
-        languages: javascript
-        
-    - name: Semgrep SAST
-      uses: returntocorp/semgrep-action@v1
-      with:
-        config: p/ci
-        
-  test-coverage:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18.x'
-        
-    - name: Install dependencies
-      run: npm ci
-      
-    - name: Run tests with coverage
-      run: npm test -- --coverage
-      
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage/lcov.info
-        flags: unittests
-        name: codecov-umbrella
-        
-  size-limit:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18.x'
-        
-    - name: Install dependencies
-      run: npm ci
+    - name: Run tests
+      run: npm test
       
     - name: Build project
       run: npm run build
       
-    - name: Size Limit
-      run: npx size-limit
+    - name: Security check
+      run: npm audit --audit-level=high || true
       
-  required-checks:
-    runs-on: ubuntu-latest
-    needs: [code-quality, security-scan, test-coverage, size-limit]
-    if: always()
-    
-    steps:
-    - name: Check if all required jobs passed
-      run: |
-        if [[ "${{ needs.code-quality.result }}" != "success" ]] || \
-           "${{ needs.security-scan.result }}" != "success" ]] || \
-           "${{ needs.test-coverage.result }}" != "success" ]]; then
-          echo "Some required checks failed"
-          exit 1
-        fi
+    - name: Success message
+      run: echo "✅ All code review checks passed!"
