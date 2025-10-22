@@ -31,4 +31,5 @@ jobs:
       run: npm audit --audit-level=high || true
       
     - name: Success message
+      if: success()
       run: echo "✅ All code review checks passed!"
